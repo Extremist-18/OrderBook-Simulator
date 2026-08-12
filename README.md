@@ -12,8 +12,6 @@ I built this to understand how exchanges actually manage orders under the hood.
 - Runs a background simulator thread that generates realistic-ish order flow (a sentiment-driven random walk decides how aggressively buyers/sellers behave)
 - Renders the whole thing live: current price, best bid/ask, spread, a price chart, and top-10 depth on both sides — via ImGui + ImPlot
 
-It is **not** connected to a real exchange or real market data (yet — see [Roadmap](#roadmap)). Everything you see is synthetic order flow generated locally, which makes it a safe sandbox for experimenting with matching logic without worrying about real money or real data feeds.
-
 ---
 
 ## Demo
