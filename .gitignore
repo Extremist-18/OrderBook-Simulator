@@ -1,0 +1,13 @@
+
+build/
+imgui/
+implot/
+
+*.exe
+orderbook_gui
+
+chart.html
+*.js
+*.dSYM
+liveChart.py
+.vscode/
