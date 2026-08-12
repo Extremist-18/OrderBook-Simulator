@@ -1,0 +1,6 @@
+operation,mean_ns,p50_ns,p95_ns,p99_ns,p999_ns,max_ns
+addOrder_random_price,388.23,0,1000,2000,14000,614000
+addOrder_same_price_level,55.18,0,0,1000,1000,525000
+cancelOrder,191.79,0,1000,1000,6000,36000
+addOrder_x2_plus_match_crossing,317.95,0,1000,1000,10000,340000
+throughput_orders_per_sec,,,,,,2.36876e+06
