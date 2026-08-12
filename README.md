@@ -1,7 +1,6 @@
 # OrderBook Simulator
 
 A C++ limit order book with price-time priority matching, a synthetic market simulator, and a live ImGui/ImPlot dashboard for watching the book move in real time.
-
 I built this to understand how exchanges actually manage orders under the hood.
 
 ---
@@ -115,11 +114,7 @@ brew install cmake glfw
 On Ubuntu/Debian:
 ```bash
 sudo apt install cmake libglfw3-dev libgl1-mesa-dev
-```
 
-`imgui` and `implot` are vendored as source (not submodules) under `imgui/` and `implot/` — they're gitignored in this repo, so you'll need to grab them yourself if you're cloning fresh:
-
-```bash
 git clone https://github.com/ocornut/imgui.git
 git clone https://github.com/epezent/implot.git
 ```
@@ -145,15 +140,8 @@ This opens a window showing live price, best bid/ask, spread, a rolling price ch
 
 ## Known limitations / Roadmap
 
-Being upfront about what's rough around the edges, roughly in priority order:
+- [ ] **Memory growth in `PriceLevel`** — cancelling an order marks it dead but doesn't compact the underlying vector unless the whole price level empties out via matching. A price level that's added-to and cancelled-from repeatedly without ever crossing will grow unbounded. 
 
-- [ ] **Memory growth in `PriceLevel`** — cancelling an order marks it dead but doesn't compact the underlying vector unless the whole price level empties out via matching. A price level that's added-to and cancelled-from repeatedly without ever crossing will grow unbounded. Fix: periodic compaction, or move to an intrusive doubly-linked list per price level.
-- [ ] **Market order trade price** — currently market-order fills are stamped with an internal drifting `marketPrice` variable rather than the actual price of the resting order they matched against. Should use the resting order's price, which is how real price-time-priority matching works.
-- [ ] **Matching is batched, not continuous** — orders are inserted first and reconciled by a separate `match()` call (currently every ~50ms from the simulator), rather than matching immediately against the opposite book at insertion time like a real exchange does.
-- [ ] **Single global mutex** — correct, but coarse. Worth exploring a single-writer-thread + lock-free queue design if I want to push toward genuinely low-latency numbers.
-- [ ] **No automated tests** — need a real suite (Catch2/GoogleTest) covering matching correctness, FIFO ordering, partial fills, and edge cases (empty book, self-cross, etc.), plus a stress test that asserts invariants under random order flow.
-- [ ] **No latency/throughput benchmarks yet** — want a `bench/` harness reporting p50/p95/p99/p99.9 latency per operation, not just "it feels fast."
-- [ ] **No real market data** — replacing the synthetic sentiment-driven simulator with a replay of real L2 tick data (e.g. from Binance or Coinbase) would make the whole thing much more realistic.
-- [ ] Support for IOC/FOK/GTC order types, order modify, and iceberg orders.
+- [ ] **Market order trade price** — currently market-order fills are stamped with an internal drifting `marketPrice` variable rather than the actual price of the resting order they matched against. 
 
 ---
