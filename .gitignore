@@ -5,6 +5,7 @@ implot/
 
 *.exe
 orderbook_gui
+OrderBook
 
 chart.html
 *.js
