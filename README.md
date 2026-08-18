@@ -32,21 +32,21 @@ The project is split into three layers
 │   GLFW window + ImGui/ImPlot rendering loop   │
 └───────────────────┬───────────────────────────┘
                      │ reads via thread-safe getters
-┌────────────────────▼───────────────────────────--┐
-│              simulation/Simulator                │
+┌────────────────────▼───────────────────────────---┐
+│              simulation/Simulator                 │
 │  Background thread.                               │
 │   - generates buy/sell/limit orders               │
 │   - feeds them into the OrderBook                 │
 │   - calls book.match()                            │
 └────────────────────┬──────────────────────────---─┘
                      │ addOrder() / cancelOrder() / match()
-┌────────────────────▼──────────────────────────---─┐
-│                 core/OrderBook                    │
-│  bids: std::map<Price, PriceLevel, greater<>>     │
-│  asks: std::map<Price, PriceLevel, less<>>        │
+┌────────────────────▼──────────────────────────---─--┐
+│                 core/OrderBook                      │
+│  bids: std::map<Price, PriceLevel, greater<>>       │
+│  asks: std::map<Price, PriceLevel, less<>>          │
 │  orderMetadata: unordered_map<OrderId, {side,price}>│
 │  Guarded by a single mutex                          │
-└──────────────────────────────────────────────────--┘
+└──────────────────────────────────────────────────---┘
 ```
 
 **Why `std::map` for price levels?** It keeps bids sorted highest-first and asks sorted lowest-first automatically, so `best_bid()`/`best_ask()` are O(1) (just `begin()`), and price-level lookups are O(log n). 
@@ -104,12 +104,6 @@ struct PriceLevel {
 - OpenGL
 - GLFW3
 
-On macOS:
-```bash
-brew install cmake glfw
-```
-
-On Ubuntu/Debian:
 ```bash
 sudo apt install cmake libglfw3-dev libgl1-mesa-dev
 
