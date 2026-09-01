@@ -2,15 +2,16 @@
 #include <algorithm>
 
 static int64_t counter=0;
-void OrderBook::addOrder(OrderId id, Price price, Quantity qnty,Side side, OrderType type){
+OrderId OrderBook::addOrder(Price price, Quantity qnty,Side side, OrderType type){
     std::lock_guard<std::mutex> lock(mtx);
+    OrderId id = nextOrderId++;
     uint64_t seq = ++counter;
     Order o{id,seq,price, qnty,side,type};
 
     if(type == OrderType::Market){
         pendingMarketOrders.push_back(o);
         orderMetadata[id]={side,price};
-        return;
+        return id;
     }
 
     if(side== Side::Buy){
@@ -33,6 +34,7 @@ void OrderBook::addOrder(OrderId id, Price price, Quantity qnty,Side side, Order
         }
     }
     orderMetadata[id] ={side, price};
+    return id;
 }
 
 void OrderBook::cancelOrder(OrderId id){
@@ -59,6 +61,36 @@ void OrderBook::cancelOrder(OrderId id){
 
     orderMetadata.erase(it);
 }
+
+void OrderBook::setMarketDepth(std::vector<std::pair<Price,Quantity>>& bidLevels,std::vector<std::pair<Price,Quantity>>& askLevels){
+    std::lock_guard<std::mutex> lock(mtx);
+
+    for(Price p:lastMarketBidPrices)    bids.erase(p);
+    for(Price p:lastMarketAskPrices)    asks.erase(p);
+    lastMarketAskPrices.clear();
+    lastMarketBidPrices.clear();
+
+    static OrderId marketId = 900000;
+    for(auto &x:bidLevels){
+        // x = [price, qnty]
+        uint64_t seq = ++counter;
+        Order o{marketId++,seq,x.first,x.second, Side::Buy, OrderType::Limit};
+        PriceLevel lvl;
+        lvl.addOrder(o);
+        bids[x.first] = std::move(lvl);
+        lastMarketBidPrices.push_back(x.first);
+    }
+    for(auto &x:askLevels){
+        // x = [price,qnty]
+        uint64_t seq = ++counter;
+        Order o{marketId++,seq, x.first, x.second,Side::Sell, OrderType::Limit};
+        PriceLevel lvl;
+        lvl.addOrder(o);
+        asks[x.first] = std::move(lvl);
+        lastMarketAskPrices.push_back(x.first);
+    }
+}
+
 
 std::vector<Trade> OrderBook::match(){
     std::lock_guard<std::mutex> lock(mtx);
@@ -165,7 +197,8 @@ Price OrderBook::best_ask() const{
 }
 
 Price OrderBook::mid_price() const{
-    return marketPrice;
+    if (bids.empty() || asks.empty()) return marketPrice;
+    return (best_bid() + best_ask()) / 2;
 }
 
 std::vector<std::pair<Price, Quantity>> OrderBook::buyOrders(int cnt) const{

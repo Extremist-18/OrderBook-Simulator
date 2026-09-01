@@ -18,7 +18,7 @@ class Simulator{
 
     double sentiment=0.5;
     double reversion = 0.02;
-    Price basePrice = 12000;
+    std::atomic<Price> basePrice{12000};
     double volatility = 0.4;
     // OrderId id = 10000;
     std::atomic<OrderId> id{10000};
@@ -30,7 +30,8 @@ class Simulator{
     void start();
     void stop();
     void run();
-
+    void setBasePrice(Price p);
+    
     private:
     void updateSentiment();
     void generateOrders();

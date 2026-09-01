@@ -10,6 +10,20 @@ find_package(glfw3 REQUIRED)
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/imgui)
 set(IMPLOT_DIR ${CMAKE_SOURCE_DIR}/implot)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+include(FetchContent)
+
+FetchContent_Declare(
+    uWebSockets
+    GIT_REPOSITORY https://github.com/uNetworking/uWebSockets.git
+    GIT_TAG v20.67.0
+    GIT_SUBMODULES_RECURSE TRUE
+)
+FetchContent_MakeAvailable(uWebSockets)
+
+find_package(OpenSSL REQUIRED)
+find_package(ZLIB REQUIRED)
+find_package(libuv REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 add_executable(orderbook_gui
     src/main.cpp
@@ -44,3 +58,33 @@ if(APPLE)
         "-framework CoreFoundation"
     )
 endif()
+
+set(USOCKETS_DIR ${CMAKE_BINARY_DIR}/_deps/uWebSockets-src/uSockets)
+add_custom_command(
+    OUTPUT ${USOCKETS_DIR}/uSockets.a
+    COMMAND make
+    WORKING_DIRECTORY ${USOCKETS_DIR}
+)
+add_custom_target(build_usockets DEPENDS ${USOCKETS_DIR}/uSockets.a)
+
+add_executable(orderbook_server
+    src/ServerMain.cpp
+    src/server/Server.cpp
+    src/core/OrderBook.cpp
+    src/simulation/Simulator.cpp
+)
+add_dependencies(orderbook_server build_usockets)
+
+target_include_directories(orderbook_server PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/_deps/uWebSockets-src/src
+    ${USOCKETS_DIR}/src
+)
+
+target_link_libraries(orderbook_server PRIVATE
+    nlohmann_json::nlohmann_json
+    ${USOCKETS_DIR}/uSockets.a
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    ZLIB::ZLIB
+)

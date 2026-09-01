@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <cstddef>
 #include <mutex>
+#include <atomic> 
 
 struct PriceLevel{
     std::vector<Order> orders;
@@ -45,12 +46,16 @@ class OrderBook{
     Price marketPrice = 12000;
     std::vector<Order> pendingMarketOrders;
     int64_t Volume =0;
-
+    std::vector<Price> lastMarketBidPrices;
+    std::vector<Price> lastMarketAskPrices;
+    std::atomic<OrderId> nextOrderId{1};
+    
     public:
     std::vector<std::pair<Price, Quantity>> buyOrders(int count) const;
     std::vector<std::pair<Price, Quantity>> sellOrders(int count) const;
+    void setMarketDepth(std::vector<std::pair<Price,Quantity>>& bidLevels,std::vector<std::pair<Price,Quantity>>& askLevels);
 
-    void addOrder(OrderId id, Price price, Quantity qnty, Side side, OrderType type);
+    OrderId addOrder(Price price, Quantity qnty, Side side, OrderType type);
     void cancelOrder(OrderId id);
     
     std::vector<Trade> match();

@@ -21,6 +21,10 @@ void Simulator::stop(){
     if(worker.joinable())   worker.join();
     std::cout<<"Market Simulator Stopped\n";
 }
+
+void Simulator::setBasePrice(Price p) {
+    basePrice.store(p);
+}
 void Simulator::run(){
     while (running.load()) {
         updateSentiment();
@@ -57,10 +61,10 @@ void Simulator::generateBuyOrder(){
 
     if(rand()%10 <5){   // But at Market price: Assumption: 50% people in market buy at market price no matter what the price is, they just want the stock in thier portfolio
         price=basePrice;
-        book_.addOrder(id++,price,qnty,Side::Buy, OrderType::Market);
+        book_.addOrder(price,qnty,Side::Buy, OrderType::Market);
     }else{
         price = book_.best_ask()+ (rand()%10 + 1)*5;
-        book_.addOrder(id++,price,qnty,Side::Buy, OrderType::Limit);
+        book_.addOrder(price,qnty,Side::Buy, OrderType::Limit);
     }
 }
 void Simulator::generateSellOrder(){
@@ -69,10 +73,10 @@ void Simulator::generateSellOrder(){
 
     if(rand()%10 <6){   // Sell at market price -> Assuming that 60% people in market just want the stock
         price=basePrice;
-        book_.addOrder(id++,price,qnty,Side::Sell,OrderType::Market);
+        book_.addOrder(price,qnty,Side::Sell,OrderType::Market);
     }else{
         price = book_.best_bid() -(rand()%10 +1)*5;
-        book_.addOrder(id++,price,qnty,Side::Sell,OrderType::Limit);
+        book_.addOrder(price,qnty,Side::Sell,OrderType::Limit);
     }
 }
 void Simulator::generateLimitOrder(){
@@ -86,5 +90,5 @@ void Simulator::generateLimitOrder(){
     }else{
         price = mid + (rand()%10 + 1)*5;
     }
-    book_.addOrder(id++, price, qnty, side,OrderType::Limit);
+    book_.addOrder(price, qnty, side,OrderType::Limit);
 }
