@@ -1,0 +1,8 @@
+build/
+*.dSYM/
+.git/
+bench/
+*.o
+*.a
+*.so
+*.dylib
