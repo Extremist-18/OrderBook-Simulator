@@ -21,5 +21,6 @@ RUN npm install ws
 RUN rm -rf build && mkdir build && cd build && cmake .. && make -j orderbook_server
 
 EXPOSE 8080
+RUN find /app -name "depthFeed.js"
 
 CMD ["sh", "-c", "node depthFeed.js & cd build && ./orderbook_server"]
