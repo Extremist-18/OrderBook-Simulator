@@ -19,9 +19,10 @@
 class Account{                  // all amount are dealth in cents for precision concerns
     public:     
     std::string userId;
-    Price balance = 10000000;   // starts with $100,000 paper money
-    Quantity qnty = 0;           // net BTC held, scaled x100000
-    Price avgEntry = 0;         // average cost basis, in cents per BTC
+    Price balance = 1000000;   // starts with $10,000 paper money
+    int64_t qnty = 0;          
+    Price avgEntry = 0;        
+    Price realizedPnL = 0; 
     std::string lastTopupDate;         // "YYYY-MM-DD", for the daily grant
 };
 

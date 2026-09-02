@@ -6,6 +6,8 @@
 #include <thread>
 #include <App.h>
 #include <ctime>
+#include <fstream>
+#include <sstream>
 
 using json = nlohmann::json;
 struct EmptyUserData {};
@@ -13,6 +15,14 @@ struct EmptyUserData {};
 OrderBookServer::OrderBookServer(OrderBook &book, Simulator *sim, int port): book1(book),simulator1(sim),port1(port), running1(false){}
 OrderBookServer::~OrderBookServer(){
     stop();
+}
+
+static std::string readFileContent(const std::string& path){
+    std::ifstream file(path);
+    if(!file.is_open()) return "";
+    std::stringstream buffer;
+    buffer<<file.rdbuf();
+    return buffer.str();
 }
 
 std::string OrderBookServer::todayDate(){
@@ -158,12 +168,15 @@ void OrderBookServer::run(){
                 res->end(json{{"error","not found"}}.dump());
                 return;
             }
+
             Price mid = book1.mid_price();
-            Price unrealized = ((mid-it->second.avgEntry)*(it->second.qnty))/100000;
-            Price equity = it->second.balance + ((mid)*(it->second.qnty))/100000;
+            int64_t unrealized = ((int64_t)(mid - it->second.avgEntry) * (int64_t)it->second.qnty) / 100000;
+            int64_t equity = it->second.balance + ((int64_t)mid * (int64_t)it->second.qnty) / 100000;
+            int64_t totalPnL = it->second.realizedPnL + unrealized;
+
             res->writeHeader("Content-Type","application/json");
-            res->end(json{{"userId",it->second.userId},{"balance_Cents",it->second.balance},{"position_Qnty",it->second.qnty},
-            {"avgEntry_Cents",it->second.avgEntry}, {"unrealized_PnL_Cents",unrealized},{"equity_Cents",equity}}.dump());
+            res->end(json{{"userId",it->second.userId},{"balance_Cents",it->second.balance},{"position_Qnty",it->second.qnty},{"avgEntry_Cents",it->second.avgEntry},
+            {"unrealized_PnL_Cents",unrealized},{"realized_PnL_Cents",it->second.realizedPnL},{"total_PnL_Cents",totalPnL},{"equity_Cents",equity}}.dump());
         });
 
         app->ws<EmptyUserData>("/ws",{
@@ -180,6 +193,31 @@ void OrderBookServer::run(){
                 std::cout<<"[WS] client disconnected!\n";
                 std::cout.flush();
             }
+        });
+
+        // Serve the trading HTML at the root
+        app->get("/", [&](auto *res, auto *req){
+            std::string html = readFileContent("../src/trading.html");
+            if(html.empty()) html = readFileContent("trading.html"); // fallback
+            if(html.empty()){
+                res->writeStatus("404 Not Found");
+                res->end("trading.html not found");
+                return;
+            }
+            res->writeHeader("Content-Type", "text/html");
+            res->end(html);
+        });
+
+        app->get("/trading.html", [&](auto *res, auto *req){
+            std::string html = readFileContent("../src/trading.html");
+            if(html.empty()) html = readFileContent("trading.html");
+            if(html.empty()){
+                res->writeStatus("404 Not Found");
+                res->end("File not found");
+                return;
+            }
+            res->writeHeader("Content-Type", "text/html");
+            res->end(html);
         });
 
         app->listen(port1, [this](auto *listen_socket) {
@@ -207,21 +245,26 @@ void OrderBookServer::stop() {
 void OrderBookServer::settleTrades(const std::vector<Trade>& trades){
     std::lock_guard<std::mutex> lock(accountsMtx);
     for(auto &x:trades){
-        Price transaction = (x.price*x.quantity)/100000;
+        Price transaction = ((int64_t)x.price * (int64_t)x.quantity)/100000;
         auto buyer = orderOwner.find(x.buyer_id);
         auto seller = orderOwner.find(x.seller_id);
-        if(buyer!=orderOwner.end() && seller!=orderOwner.end()){
-            // Buyer Part
-            auto acc = accounts[buyer->second];
-            Quantity oldQnty = acc.qnty;
-            Quantity newQnty = oldQnty + x.quantity;
-            acc.avgEntry = ((newQnty!=0)?((acc.avgEntry*oldQnty + x.price*x.quantity)/newQnty):0);
+        // Buyer Part
+        if(buyer!=orderOwner.end()){
+            auto &acc = accounts[buyer->second];
+            int64_t oldQnty = acc.qnty;                          
+            int64_t newQnty = oldQnty + (int64_t)x.quantity;     
+            acc.avgEntry = ((newQnty!=0)?(((int64_t)acc.avgEntry* (int64_t)oldQnty + (int64_t)x.price* (int64_t)x.quantity)/newQnty):0);
             acc.qnty = newQnty;
             acc.balance -= transaction;
+        }
 
-            // Seller Side
-            auto accSeller =accounts[seller->second];
-            accSeller.qnty -= x.quantity;
+        // Seller Side
+        if(seller!=orderOwner.end()){
+            auto &acc =accounts[seller->second];
+            int64_t closedQty = std::min((int64_t)x.quantity, acc.qnty);
+            acc.realizedPnL += ((int64_t)(x.price - acc.avgEntry) * closedQty) / 100000;
+            acc.qnty -= x.quantity;
+            if(acc.qnty == 0) acc.avgEntry = 0;
             acc.balance += transaction;
         }
         
@@ -243,9 +286,29 @@ void OrderBookServer::handleAddOrder(uWS::HttpResponse<false> *res, uWS::HttpReq
                 Side side = ((data["side"]=="buy")?Side::Buy : Side::Sell);
                 OrderType type = ((data["type"]=="market")?OrderType::Market : OrderType::Limit);
                 std::string userId = data.value("userId", "guest");
-                
-                OrderId id = book1.addOrder(price, qnty,side,type);
-                { std::lock_guard<std::mutex> lock(accountsMtx); orderOwner[id] = userId; }
+
+                OrderId id;
+                {
+                    std::lock_guard<std::mutex> lock(accountsMtx);
+                    if(side == Side::Buy){
+                        auto& acc = accounts[userId];
+                        int64_t estCost = ((int64_t)price * (int64_t)qnty) / 100000;
+                        if(estCost > acc.balance){
+                            res->writeStatus("400 Bad Request");
+                            res->end(json{{"error","insufficient balance"}}.dump());
+                            return;
+                        }
+                    }else{
+                        auto& acc = accounts[userId];
+                        if((int64_t)qnty > acc.qnty){
+                            res->writeStatus("400 Bad Request");
+                            res->end(json{{"error","insufficient position — you can't sell more BTC than you hold"}}.dump());
+                            return;
+                        }
+                    }
+                    id = book1.addOrder(price, qnty, side, type);
+                    orderOwner[id] = userId;
+                }
                 
                 auto trades = book1.match();
                 settleTrades(trades);
@@ -261,19 +324,38 @@ void OrderBookServer::handleAddOrder(uWS::HttpResponse<false> *res, uWS::HttpReq
     });
 }
 
-
 void OrderBookServer::handleCancelOrder(uWS::HttpResponse<false> *res, uWS::HttpRequest *req){
     res->onAborted([]() {});
-
     std::string body;
     res->onData([res, this, body = std::move(body)](std::string_view data, bool fin) mutable{
-        body.append(data.data(), data.size()); 
+        body.append(data.data(), data.size());
         if(fin){
             try{
                 auto data = json::parse(body);
-                OrderId id= data["orderId"];
-        
-                book1.cancelOrder(id);
+                OrderId id = data["orderId"];
+                std::string userId = data.value("userId", "guest");
+                {
+                    std::lock_guard<std::mutex> lock(accountsMtx);
+                    auto ownerIt = orderOwner.find(id);
+                    if(ownerIt == orderOwner.end()){
+                        res->writeStatus("404 Not Found");
+                        res->end(json{{"error","order not found"}}.dump());
+                        return;
+                    }
+                    if(ownerIt->second != userId){
+                        res->writeStatus("403 Forbidden");
+                        res->end(json{{"error","not your order"}}.dump());
+                        return;
+                    }
+                }
+
+                // bool ok = book1.cancelOrder(id);
+                // if(!ok){
+                //     res->writeStatus("404 Not Found");
+                //     res->end(json{{"error","order not found"}}.dump());
+                //     return;
+                // }
+                { std::lock_guard<std::mutex> lock(accountsMtx); orderOwner.erase(id); }
                 broadcastBookUpdate();
                 res->writeHeader("Content-Type","application/json");
                 res->end(R"({"status":"ok"})");
@@ -283,7 +365,6 @@ void OrderBookServer::handleCancelOrder(uWS::HttpResponse<false> *res, uWS::Http
             }
         }
     });
-    
 }
 
 void OrderBookServer::handleGetBids(uWS::HttpResponse<false> *res, uWS::HttpRequest *req){

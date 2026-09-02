@@ -39,7 +39,7 @@ class OrderBook{
     mutable std::mutex mtx;
     std::map<Price, PriceLevel, std::greater<Price>> bids; // bids -> zyada paisa dega to phele milega
     std::map<Price, PriceLevel, std::less<Price>> asks; // asks -> kam price wala phele bik jayega 
-    struct OrderMeta { Side side; Price price; };
+    struct OrderMeta { Side side; Price price; OrderType type; };
     std::unordered_map<OrderId, OrderMeta> orderMetadata;
     std::vector<Price> priceHistory;
 
@@ -56,7 +56,7 @@ class OrderBook{
     void setMarketDepth(std::vector<std::pair<Price,Quantity>>& bidLevels,std::vector<std::pair<Price,Quantity>>& askLevels);
 
     OrderId addOrder(Price price, Quantity qnty, Side side, OrderType type);
-    void cancelOrder(OrderId id);
+    bool cancelOrder(OrderId id);
     
     std::vector<Trade> match();
     Price best_bid() const;

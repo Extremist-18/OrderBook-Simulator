@@ -10,7 +10,7 @@ OrderId OrderBook::addOrder(Price price, Quantity qnty,Side side, OrderType type
 
     if(type == OrderType::Market){
         pendingMarketOrders.push_back(o);
-        orderMetadata[id]={side,price};
+        orderMetadata[id]={side,price,type};
         return id;
     }
 
@@ -33,16 +33,16 @@ OrderId OrderBook::addOrder(Price price, Quantity qnty,Side side, OrderType type
             it->second.addOrder(o);
         }
     }
-    orderMetadata[id] ={side, price};
+    orderMetadata[id] ={side, price,type};
     return id;
 }
 
-void OrderBook::cancelOrder(OrderId id){
+bool OrderBook::cancelOrder(OrderId id){
     std::lock_guard<std::mutex> lock(mtx);
     auto it = orderMetadata.find(id);
-    if(it == orderMetadata.end())  return;
+    if(it == orderMetadata.end())  return false;
 
-    auto [side,price] = orderMetadata[id];
+    auto [side,price,type] = orderMetadata[id];
     if(side==Side::Buy){
         auto it = bids.find(price);
         if(it!=bids.end()){
@@ -60,6 +60,7 @@ void OrderBook::cancelOrder(OrderId id){
     }
 
     orderMetadata.erase(it);
+    return true;
 }
 
 void OrderBook::setMarketDepth(std::vector<std::pair<Price,Quantity>>& bidLevels,std::vector<std::pair<Price,Quantity>>& askLevels){
@@ -91,7 +92,6 @@ void OrderBook::setMarketDepth(std::vector<std::pair<Price,Quantity>>& bidLevels
     }
 }
 
-
 std::vector<Trade> OrderBook::match(){
     std::lock_guard<std::mutex> lock(mtx);
     std::vector<Trade> trades;
@@ -106,42 +106,47 @@ std::vector<Trade> OrderBook::match(){
                 auto &ask_level = asks.begin()->second;
                 while(ask_level.head < ask_level.orders.size() && ask_level.orders[ask_level.head].quantity==0){
                     ask_level.head++;
-                } 
-
+                }
                 if(ask_level.head>= ask_level.orders.size()){
                     asks.erase(asks.begin());
                     continue;
                 }
-                Order sellOrder = ask_level.orders[ask_level.head];
+                Order &sellOrder = ask_level.orders[ask_level.head];
                 Quantity tradingQnty = std::min(market.quantity, sellOrder.quantity);
-                trades.push_back({marketPrice,tradingQnty, market.orderId,sellOrder.orderId, Side::Buy});
+                trades.push_back({sellOrder.price, tradingQnty, market.orderId, sellOrder.orderId, Side::Buy});
 
                 buyVolume += tradingQnty;
                 market.quantity -= tradingQnty;
                 sellOrder.quantity -= tradingQnty;
-                if(sellOrder.quantity==0)   ask_level.head++;
+                if(sellOrder.quantity==0){
+                    orderMetadata.erase(sellOrder.orderId);   
+                    ask_level.head++;
+                }
             }
         }else{
             while(market.quantity>0 && !bids.empty()){
                 auto &bid_level = bids.begin()->second;
                 while(bid_level.head < bid_level.orders.size() && bid_level.orders[bid_level.head].quantity==0){
                     bid_level.head++;
-                } 
+                }
                 if(bid_level.head>= bid_level.orders.size()){
                     bids.erase(bids.begin());
                     continue;
                 }
-                Order buyOrder = bid_level.orders[bid_level.head];
-                Quantity tradingQnty = std::min(market.quantity,buyOrder.quantity);
-                trades.push_back({marketPrice,tradingQnty,buyOrder.orderId, market.orderId,Side::Sell});
+                Order &buyOrder = bid_level.orders[bid_level.head];
+                Quantity tradingQnty = std::min(market.quantity, buyOrder.quantity);
+                trades.push_back({buyOrder.price, tradingQnty, buyOrder.orderId, market.orderId, Side::Sell});
 
                 sellVolume += tradingQnty;
                 buyOrder.quantity -= tradingQnty;
                 market.quantity -= tradingQnty;
-
-                if(buyOrder.quantity==0)    bid_level.head++;
+                if(buyOrder.quantity==0){
+                    orderMetadata.erase(buyOrder.orderId);  
+                    bid_level.head++;
+                }
             }
         }
+        orderMetadata.erase(market.orderId);  
     }
 
     int64_t netVolume = buyVolume - sellVolume;
@@ -151,40 +156,34 @@ std::vector<Trade> OrderBook::match(){
 
     while(!bids.empty() && !asks.empty() && best_bid()>=best_ask()){
         PriceLevel &bidding = bids.begin()->second;
-        PriceLevel & asking = asks.begin()->second;
+        PriceLevel &asking = asks.begin()->second;
 
         while(bidding.head< bidding.orders.size() && bidding.orders[bidding.head].quantity==0)
             bidding.head++;
-        
         while(asking.head<asking.orders.size() && asking.orders[asking.head].quantity==0)
             asking.head++;
-        
-        if(bidding.head>=bidding.orders.size()){
-            bids.erase(bids.begin());
-            continue;
-        }
-        if(asking.head >= asking.orders.size()){
-            asks.erase(asks.begin());
-            continue;
-        }
+
+        if(bidding.head>=bidding.orders.size()){ bids.erase(bids.begin()); continue; }
+        if(asking.head >= asking.orders.size()){ asks.erase(asks.begin()); continue; }
 
         Order &buying = bidding.orders[bidding.head];
         Order &selling = asking.orders[asking.head];
 
         Quantity trade_qnty = std::min(buying.quantity, selling.quantity);
         trades.push_back({buying.price, trade_qnty, buying.orderId, selling.orderId, Side::Buy});
-        // trades.push_back({buying.price, trade_qnty, buying.orderId, selling.orderId, Side::Sell});
 
         buying.quantity -= trade_qnty;
         selling.quantity -= trade_qnty;
 
-        if(bidding.orders[bidding.head].quantity==0)    bidding.head++;
-        if(asking.orders[asking.head].quantity==0)  asking.head++;
-
+        if(buying.quantity==0){
+            orderMetadata.erase(buying.orderId);  
+            bidding.head++;
+        }
+        if(selling.quantity==0){
+            orderMetadata.erase(selling.orderId);  
+            asking.head++;
+        }
     }
-    // if(!bids.empty() && !asks.empty() && best_bid()>0 && best_ask()>0){
-    //     marketPrice = (best_ask()+ best_bid())/2;
-    // }
     return trades;
 }
 
