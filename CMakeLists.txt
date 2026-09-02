@@ -4,9 +4,6 @@ project(OrderBook)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(OpenGL REQUIRED)
-find_package(glfw3 REQUIRED)
-
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/imgui)
 set(IMPLOT_DIR ${CMAKE_SOURCE_DIR}/implot)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -29,40 +26,52 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBUV REQUIRED libuv)
 find_package(nlohmann_json CONFIG REQUIRED)
 
-add_executable(orderbook_gui
-    src/main.cpp
-    src/core/OrderBook.cpp
-    src/simulation/Simulator.cpp
-    ${IMGUI_DIR}/imgui.cpp
-    ${IMGUI_DIR}/imgui_draw.cpp
-    ${IMGUI_DIR}/imgui_widgets.cpp
-    ${IMGUI_DIR}/imgui_tables.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
-    ${IMPLOT_DIR}/implot.cpp
-    ${IMPLOT_DIR}/implot_items.cpp
-)
+if(EXISTS ${IMGUI_DIR}/imgui.cpp)
+    find_package(OpenGL)
+    find_package(glfw3)
 
-target_include_directories(orderbook_gui PRIVATE
-    ${IMGUI_DIR}
-    ${IMGUI_DIR}/backends
-    ${IMPLOT_DIR}
-    ${CMAKE_SOURCE_DIR}/src
-)
+    if(OpenGL_FOUND AND glfw3_FOUND)
+        add_executable(orderbook_gui
+            src/main.cpp
+            src/core/OrderBook.cpp
+            src/simulation/Simulator.cpp
+            ${IMGUI_DIR}/imgui.cpp
+            ${IMGUI_DIR}/imgui_draw.cpp
+            ${IMGUI_DIR}/imgui_widgets.cpp
+            ${IMGUI_DIR}/imgui_tables.cpp
+            ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+            ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+            ${IMPLOT_DIR}/implot.cpp
+            ${IMPLOT_DIR}/implot_items.cpp
+        )
 
-target_link_libraries(orderbook_gui
-    ${OPENGL_gl_LIBRARY}
-    glfw
-)
+        target_include_directories(orderbook_gui PRIVATE
+            ${IMGUI_DIR}
+            ${IMGUI_DIR}/backends
+            ${IMPLOT_DIR}
+            ${CMAKE_SOURCE_DIR}/src
+        )
 
-if(APPLE)
-    target_link_libraries(orderbook_gui
-        "-framework Cocoa"
-        "-framework IOKit"
-        "-framework CoreFoundation"
-    )
+        target_link_libraries(orderbook_gui
+            ${OPENGL_gl_LIBRARY}
+            glfw
+        )
+
+        if(APPLE)
+            target_link_libraries(orderbook_gui
+                "-framework Cocoa"
+                "-framework IOKit"
+                "-framework CoreFoundation"
+            )
+        endif()
+    else()
+        message(STATUS "OpenGL/glfw3 not found — skipping orderbook_gui target")
+    endif()
+else()
+    message(STATUS "ImGui sources not found at ${IMGUI_DIR} — skipping orderbook_gui target")
 endif()
 
+# ─── Server target (orderbook_server) — always built ───
 set(USOCKETS_DIR ${CMAKE_BINARY_DIR}/_deps/uwebsockets-src/uSockets)
 add_custom_command(
     OUTPUT ${USOCKETS_DIR}/uSockets.a
