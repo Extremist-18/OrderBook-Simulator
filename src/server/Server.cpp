@@ -82,13 +82,13 @@ void OrderBookServer::run(){
                         for(auto& a : j["asks"]) askLevels.push_back({a["price"], a["qnty"]});
                         book1.setMarketDepth(bidLevels, askLevels);
                         broadcastBookUpdate();
-                        std::cout<<"[DEPTH] Updated: "<<bidLevels.size()<<" bids, "<< askLevels.size()<<" asks\n"; 
-                        std::cout.flush(); 
+                        // std::cout<<"[DEPTH] Updated: "<<bidLevels.size()<<" bids, "<< askLevels.size()<<" asks\n"; 
+                        // std::cout.flush(); 
                         res->writeHeader("Content-Type","application/json");
                         res->end(R"({"status":"depth updated"})");
                     }catch(const std::exception &e){
-                        std::cout<<"[DEPTH] ERROR: "<<e.what()<<"\n"; 
-                        std::cout.flush();
+                        // std::cout<<"[DEPTH] ERROR: "<<e.what()<<"\n"; 
+                        // std::cout.flush();
                         res->writeStatus("400 Bad Request");
                         res->end(json{{"error",e.what()}}.dump());
                     }

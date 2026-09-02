@@ -694,7 +694,7 @@
     <div class="app">
         <!-- Top Bar -->
         <div class="topbar">
-            <div class="logo">Practice<span>Crypto</span></div>
+            <div class="logo">Paper<span>Crypto</span></div>
             <div class="status">
                 <span class="dot offline" id="statusDot"></span>
                 <span id="statusText">connecting…</span>
@@ -771,7 +771,7 @@
             <div class="right-col">
                 <!-- Login & Account -->
                 <div class="glass">
-                    <h3 style="font-weight:600;font-size:16px;margin-bottom:6px;">Login</h3>
+                    <!-- <h3 style="font-weight:600;font-size:16px;margin-bottom:6px;">Login</h3> -->
                     <div class="login-row">
                         <input type="text" id="userIdInput" placeholder="Enter user ID" value="trader1" />
                         <button id="loginBtn">Login</button>
@@ -1083,6 +1083,7 @@
 
         function connectWS() {
             // ws = new WebSocket('ws://localhost:8080/ws');
+            
             const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const host = window.location.host || 'localhost:8080';
             ws = new WebSocket(`${proto}//${host}/ws`);

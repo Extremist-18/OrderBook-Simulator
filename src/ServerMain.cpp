@@ -25,6 +25,10 @@ int main(){
     // std::thread simThread([&sim](){
     //     sim.start();
     // });
+    int port = 8080;
+    const char* envPort = std::getenv("PORT");
+    if (envPort) port = std::stoi(envPort);
+    
     OrderBookServer server(book,&sim,8080);
     g_server = &server;
     server.run();

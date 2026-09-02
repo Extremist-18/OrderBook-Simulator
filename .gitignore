@@ -6,6 +6,7 @@ implot/
 *.exe
 orderbook_gui
 OrderBook
+package.json
 
 chart.html
 *.dSYM
