@@ -1054,7 +1054,7 @@
             fetch('/account/topup', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: userId })
+                    body: JSON.stringify({ userId: currentUser })
                 })
                 .then(res => {
                     if (!res.ok) throw new Error('Top-up failed');
@@ -1063,7 +1063,7 @@
                 .then(data => {
                     if (data.status === 'topped up') {
                         balance = data.balance_Cents || balance;
-                        showToast('Top‑up successful! New balance: ' + fmtPrice(balance));
+                        showToast('Top-up successful! New balance: ' + fmtPrice(balance));
                         fetchAccount(); // refresh
                     } else {
                         showToast('Top-up error: ' + (data.error || 'unknown'), 'error');

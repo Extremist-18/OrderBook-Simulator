@@ -2,13 +2,17 @@
 
 A real-time BTC/USDT paper trading platform powered by a custom C++ matching engine, live Binance market data, and instant WebSocket updates — trade with virtual funds against a real, live order book.
 
-<!-- ** Live Demo:** [your-render-link-here](#) -->
+** Live Demo:** [https://orderbook-simulator.onrender.com/](#)
 
 No signup friction — enter any username and start trading immediately with $10,000 in virtual funds.
 
+
+![PaperCrypto](demo1.png)
+
+![OrderBook Simulator test](demo2.png)
 ---
 
-## Why this project stands out
+## Features
 
 - **Built a matching engine from scratch** — price-time priority order matching in C++17, not a wrapper around an existing library
 - **Real market data, not simulated noise** — live BTC/USDT order book streamed directly from Binance, refreshed 10x/second
@@ -19,6 +23,11 @@ No signup friction — enter any username and start trading immediately with $10
 
 ---
 
+## Architecture
+
+![Architecture](architecture.png)
+
+--
 ## Tech Stack
 
 **Backend:** C++17 · uWebSockets · nlohmann/json
