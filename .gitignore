@@ -8,7 +8,6 @@ orderbook_gui
 OrderBook
 
 chart.html
-*.js
 *.dSYM
 liveChart.py
 .vscode/
