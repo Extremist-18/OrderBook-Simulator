@@ -9,7 +9,12 @@ No signup friction — enter any username and start trading immediately with $10
 
 ![PaperCrypto](demo1.png)
 
+PaperCrypto - for Real time crypto trading experience
+
 ![OrderBook Simulator test](demo2.png)
+
+Simulator Load Test 
+
 ---
 
 ## Features
@@ -27,7 +32,7 @@ No signup friction — enter any username and start trading immediately with $10
 
 ![Architecture](architecture.png)
 
---
+---
 ## Tech Stack
 
 **Backend:** C++17 · uWebSockets · nlohmann/json
@@ -43,9 +48,3 @@ No signup friction — enter any username and start trading immediately with $10
 2. Enter a username — no signup required
 3. Place a market or limit order and watch it fill against live BTC prices
 4. Track your P&L update in real time as the market moves
-
----
-
-## Disclaimer
-
-Educational/portfolio project. No real funds or real order execution — market data is sourced from Binance's public API for realism only.
