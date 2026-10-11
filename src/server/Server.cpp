@@ -12,9 +12,22 @@
 using json = nlohmann::json;
 struct EmptyUserData {};
 
-OrderBookServer::OrderBookServer(OrderBook &book, Simulator *sim, int port): book1(book),simulator1(sim),port1(port), running1(false){}
+OrderBookServer::OrderBookServer(OrderBook &book, Simulator *sim, int port): book1(book),simulator1(sim),port1(port), running1(false){
+    pipeline1 = std::make_unique<MatchingPipeline>(book1,[this](const std::vector<Event> &e, const BookSnapshot* s){
+        onPipelineBatch(e,s);
+    });
+}
+
 OrderBookServer::~OrderBookServer(){
     stop();
+    pipeline1->stop();
+}
+
+static std::string snapshotJson(const BookSnapshot& s){
+    json j = {{"midPrice",s.mid},{"bids",json::array()},{"asks",json::array()}};
+    for(int i=0;i<s.nBids;i++)  j["bids"].push_back({{"price",s.bids[i].price}, {"quantity",s.bids[i].qnty}});
+    for(int i=0;i<s.nAsks;i++)  j["asks"].push_back({{"price",s.asks[i].price},{"quantity",s.asks[i].qnty}});
+    return j.dump();
 }
 
 static std::string readFileContent(const std::string& path){
@@ -35,7 +48,8 @@ std::string OrderBookServer::todayDate(){
 void OrderBookServer::run(){
     if(running1)    return;
     running1=true;
-
+    loop1 = uWS::Loop::get();
+    pipeline1->start();
     // uWS::App app;
     // app1 = &app;
 
@@ -77,11 +91,28 @@ void OrderBookServer::run(){
                 if(fin){
                     try{
                         auto j = json::parse(body);
-                        std::vector<std::pair<Price,Quantity>> bidLevels, askLevels;
-                        for(auto& b : j["bids"]) bidLevels.push_back({b["price"], b["qnty"]});
-                        for(auto& a : j["asks"]) askLevels.push_back({a["price"], a["qnty"]});
-                        book1.setMarketDepth(bidLevels, askLevels);
-                        broadcastBookUpdate();
+                        // std::vector<std::pair<Price,Quantity>> bidLevels, askLevels;
+                        // for(auto& b : j["bids"]) bidLevels.push_back({b["price"], b["qnty"]});
+                        // for(auto& a : j["asks"]) askLevels.push_back({a["price"], a["qnty"]});
+                        // book1.setMarketDepth(bidLevels, askLevels);
+                        // broadcastBookUpdate();
+
+                        DepthUpdate d;
+                        for(auto &x:j["bids"]){
+                            if(d.nBids<DEPTH){
+                                Price p=x["price"];
+                                Quantity q = x["qnty"];
+                                d.bids[d.nBids++] = {p,q};
+                            }   
+                        }  
+                        for(auto &x:j["asks"]){
+                            if(d.nAsks<DEPTH){
+                                Price p=x["price"];
+                                Quantity q = x["qnty"];
+                                d.asks[d.nAsks++] = {p,q};
+                            }   
+                        }  
+                        pipeline1->submitDepth(d);
                         // std::cout<<"[DEPTH] Updated: "<<bidLevels.size()<<" bids, "<< askLevels.size()<<" asks\n"; 
                         // std::cout.flush(); 
                         res->writeHeader("Content-Type","application/json");
@@ -169,7 +200,8 @@ void OrderBookServer::run(){
                 return;
             }
 
-            Price mid = book1.mid_price();
+            // Price mid = book1.mid_price();
+            Price mid = snap1.mid;
             int64_t unrealized = ((int64_t)(mid - it->second.avgEntry) * (int64_t)it->second.qnty) / 100000;
             int64_t equity = it->second.balance + ((int64_t)mid * (int64_t)it->second.qnty) / 100000;
             int64_t totalPnL = it->second.realizedPnL + unrealized;
@@ -184,7 +216,8 @@ void OrderBookServer::run(){
                 std::cout<<"[WS] client Connected!\n";
                 std::cout.flush();
                 ws->subscribe("book"); 
-                broadcastBookState();
+                // broadcastBookState();
+                ws->send(snapshotJson(snap1), uWS::OpCode::TEXT);
             },
             .message = [](auto *ws, std::string_view msg, uWS::OpCode opCode){
                 std::cout<<"[WS] Msg Received: "<<msg<<std::endl;
@@ -235,7 +268,8 @@ void OrderBookServer::run(){
     running1=false;
 }
 
-void OrderBookServer::stop() {
+void OrderBookServer::stop(){
+    pipeline1->stop();
     if (!running1) return;
     running1 = false;
     if (serverThread1.joinable())
@@ -287,11 +321,11 @@ void OrderBookServer::handleAddOrder(uWS::HttpResponse<false> *res, uWS::HttpReq
                 OrderType type = ((data["type"]=="market")?OrderType::Market : OrderType::Limit);
                 std::string userId = data.value("userId", "guest");
 
-                OrderId id;
+                OrderId id=book1.nextId();
                 {
                     std::lock_guard<std::mutex> lock(accountsMtx);
+                    auto &acc = accounts[userId];
                     if(side == Side::Buy){
-                        auto& acc = accounts[userId];
                         int64_t estCost = ((int64_t)price * (int64_t)qnty) / 100000;
                         if(estCost > acc.balance){
                             res->writeStatus("400 Bad Request");
@@ -299,23 +333,40 @@ void OrderBookServer::handleAddOrder(uWS::HttpResponse<false> *res, uWS::HttpReq
                             return;
                         }
                     }else{
-                        auto& acc = accounts[userId];
                         if((int64_t)qnty > acc.qnty){
                             res->writeStatus("400 Bad Request");
                             res->end(json{{"error","insufficient position — you can't sell more BTC than you hold"}}.dump());
                             return;
                         }
                     }
-                    id = book1.addOrder(price, qnty, side, type);
+                    // id = book1.addOrder(price, qnty, side, type);
                     orderOwner[id] = userId;
                 }
+                uint64_t ticket = nextTicket++;
+                pending1[ticket] = res;
+                res->onAborted([this,ticket](){pending1.erase(ticket);});
                 
-                auto trades = book1.match();
-                settleTrades(trades);
-                broadcastBookUpdate();
+                Input cmd{};
+                cmd.id = id; 
+                cmd.ticket= ticket;
+                cmd.price = price;
+                cmd.qnty = qnty;
+                cmd.side = side;
+                cmd.type = type;
+                cmd.cmd = CmdType::NewOrder;
 
-                res->writeHeader("Content-Type","application/json");
-                res->end(json{{"status","ok"},{"orderId",id}}.dump());
+                if(!pipeline1->submit(cmd)){
+                    pending1.erase(ticket);
+                    {std::lock_guard<std::mutex> lock(accountsMtx);     orderOwner.erase(id); }
+                    res->writeStatus("503 Service Unavailable");
+                    res->end(json{{"error","engine busy, retry"}}.dump());
+                }
+                // auto trades = book1.match();
+                // settleTrades(trades);
+                // broadcastBookUpdate();
+
+                // res->writeHeader("Content-Type","application/json");
+                // res->end(json{{"status","ok"},{"orderId",id}}.dump());
             }catch(const std::exception &e){
                 res->writeStatus("400 Bad Request");
                 res->end(json{{"error",e.what()}}.dump());
@@ -349,16 +400,23 @@ void OrderBookServer::handleCancelOrder(uWS::HttpResponse<false> *res, uWS::Http
                     }
                 }
 
-                // bool ok = book1.cancelOrder(id);
-                // if(!ok){
-                //     res->writeStatus("404 Not Found");
-                //     res->end(json{{"error","order not found"}}.dump());
-                //     return;
-                // }
-                { std::lock_guard<std::mutex> lock(accountsMtx); orderOwner.erase(id); }
-                broadcastBookUpdate();
-                res->writeHeader("Content-Type","application/json");
-                res->end(R"({"status":"ok"})");
+                uint64_t ticket = nextTicket++;
+                pending1[ticket] = res;
+                res->onAborted([this,ticket](){pending1.erase(ticket);});
+
+                Input cmd{};
+                cmd.id = id;
+                cmd.ticket = ticket;
+                cmd.cmd = CmdType::CancelOrder;
+                if(!pipeline1->submit(cmd)){
+                    pending1.erase(ticket);
+                    res->writeStatus("503 Service Unavailable");
+                    res->end(json{{"error","engine busy, retry"}}.dump());
+                }
+                // { std::lock_guard<std::mutex> lock(accountsMtx); orderOwner.erase(id); }
+                // // broadcastBookUpdate();
+                // res->writeHeader("Content-Type","application/json");
+                // res->end(R"({"status":"ok"})");
             }catch(const std::exception &e){
                 res->writeStatus("400 Bad Request");
                 res->end(json{{"error",e.what()}}.dump());
@@ -374,13 +432,12 @@ void OrderBookServer::handleGetBids(uWS::HttpResponse<false> *res, uWS::HttpRequ
     if (pos != std::string::npos) {
         size_t start = pos + 6;
         size_t end = query.find('&', start);
-        std::string count_str = query.substr(start, end - start);
-        cnt = std::stoi(count_str);
+        cnt = std::stoi(query.substr(start, end - start));
     }
-    auto bids = book1.buyOrders(cnt);
+    // auto bids = book1.buyOrders(cnt);
     json response = json::array();
-    for(auto &[price,qnty]:bids){
-        response.push_back({{"price",price},{"quantity",qnty}});
+    for(int i=0;i<snap1.nBids && i<cnt;i++){
+        response.push_back({{"price",snap1.bids[i].price},{"quantity",snap1.bids[i].qnty}});
     }
     res->writeHeader("Content-Type","application/json");
     res->end(response.dump());  
@@ -396,44 +453,94 @@ void OrderBookServer::handleGetAsks(uWS::HttpResponse<false> *res, uWS::HttpRequ
         std::string count_str = query.substr(start, end - start);
         cnt = std::stoi(count_str);
     }
-    auto asks = book1.sellOrders(cnt);
+    // auto asks = book1.sellOrders(cnt);
     json response = json::array();
-    for(auto &[price,qnty]:asks){
-        response.push_back({{"price",price},{"quantity",qnty}});
+    for(int i=0;i<snap1.nAsks && i<cnt;i++){
+        response.push_back({{"price",snap1.asks[i].price},{"quantity",snap1.asks[i].qnty}});
     }
     res->writeHeader("Content-Type","application/json");
     res->end(response.dump());   
 }
 
 void OrderBookServer::handleMidPrice(uWS::HttpResponse<false> *res, uWS::HttpRequest *req){
-    json response = {{"midPrice",book1.mid_price()}};
+    json response = {{"midPrice",snap1.mid}};
     res->writeHeader("Content-Type","application/json");
     res->end(response.dump());
 }
 
-void OrderBookServer::broadcastBookState(){
-    if(!app1) return;
-    auto bids = book1.buyOrders(15);
-    auto asks = book1.sellOrders(15);
-    json payload;
-    payload["bids"] = json::array();
-    payload["asks"] = json::array();
-    for(auto &[p,q] : bids) payload["bids"].push_back({{"price",p},{"quantity",q}});
-    for(auto &[p,q] : asks) payload["asks"].push_back({{"price",p},{"quantity",q}});
-    payload["midPrice"] = book1.mid_price();
+void OrderBookServer::onPipelineBatch(const std::vector<Event> &ev,const BookSnapshot* snap){
+    std::vector<Trade> trades;
+    for(const Event &e:ev){
+        if(e.type == Type::Trade)
+            trades.push_back(e.trade);
+    }
+    if(!trades.empty()) settleTrades(trades);
 
-    app1->publish("book", payload.dump(), uWS::OpCode::TEXT);
+    struct Reply{ uint64_t ticket; bool ok; std::string body; };
+    std::vector<Reply> replies;
+    for(const Event&e: ev){
+        if(e.type!= Type::Done) continue;
+        Reply r{e.ticket, e.ok, {}};
+        if(e.isCancel){
+            if(e.ok){
+                std::lock_guard<std::mutex> lock(accountsMtx);
+                orderOwner.erase(e.orderId);
+                r.body = R"({"status":"ok"})";
+            }else{
+                r.body = json{{"error","order not found or already filled"}}.dump();
+            }
+        }else{
+            r.body = json{{"status","ok"},{"orderId",e.orderId}}.dump();
+        }
+        replies.push_back(std::move(r));
+    }
+
+    bool haveSnap = (snap!=nullptr);
+    BookSnapshot snapCopy{};
+    std::string bookJson;
+    if(haveSnap){ snapCopy = *snap; bookJson = snapshotJson(*snap); }
+
+    loop1->defer([this,replies = std::move(replies),bookJson=std::move(bookJson), snapCopy, haveSnap]()mutable{
+        if(haveSnap)    snap1=snapCopy;
+        for(auto &r:replies){
+            auto it= pending1.find(r.ticket);
+            if(it==pending1.end())  continue;
+            auto *res = it->second;
+            pending1.erase(it);
+            if(!r.ok)   res->writeStatus("404 Not Found");
+            res->writeHeader("Content-Type","application/json");
+            res->end(r.body);
+        }
+
+        if(haveSnap && app1){
+            app1->publish("book", bookJson, uWS::OpCode::TEXT);
+        }
+    });
 }
 
-void OrderBookServer::broadcastBookUpdate(){
-    if(!app1) return;
-    json response = {{"midPrice", book1.mid_price()}, {"bids", json::array()}, {"asks", json::array()}};
-    for(auto &[price,qnty] : book1.buyOrders(10))
-        response["bids"].push_back({{"price",price},{"quantity",qnty}});
-    for(auto &[price,qnty] : book1.sellOrders(10))
-        response["asks"].push_back({{"price",price},{"quantity",qnty}});
-    app1->publish("book", response.dump(), uWS::OpCode::TEXT);
-}
+// void OrderBookServer::broadcastBookState(){
+//     if(!app1) return;
+//     auto bids = book1.buyOrders(15);
+//     auto asks = book1.sellOrders(15);
+//     json payload;
+//     payload["bids"] = json::array();
+//     payload["asks"] = json::array();
+//     for(auto &[p,q] : bids) payload["bids"].push_back({{"price",p},{"quantity",q}});
+//     for(auto &[p,q] : asks) payload["asks"].push_back({{"price",p},{"quantity",q}});
+//     payload["midPrice"] = book1.mid_price();
+
+//     app1->publish("book", payload.dump(), uWS::OpCode::TEXT);
+// }
+
+// void OrderBookServer::broadcastBookUpdate(){
+//     if(!app1) return;
+//     json response = {{"midPrice", book1.mid_price()}, {"bids", json::array()}, {"asks", json::array()}};
+//     for(auto &[price,qnty] : book1.buyOrders(10))
+//         response["bids"].push_back({{"price",price},{"quantity",qnty}});
+//     for(auto &[price,qnty] : book1.sellOrders(10))
+//         response["asks"].push_back({{"price",price},{"quantity",qnty}});
+//     app1->publish("book", response.dump(), uWS::OpCode::TEXT);
+// }
 
 void OrderBookServer::handleWebSocket(){
 

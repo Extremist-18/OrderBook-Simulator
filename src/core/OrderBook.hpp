@@ -55,10 +55,15 @@ class OrderBook{
     std::vector<std::pair<Price, Quantity>> sellOrders(int count) const;
     void setMarketDepth(std::vector<std::pair<Price,Quantity>>& bidLevels,std::vector<std::pair<Price,Quantity>>& askLevels);
 
+    OrderId nextId(){ return nextOrderId++; }
+    OrderId addOrder(OrderId id, Price price, Quantity qnty, Side side, OrderType type); 
+
     OrderId addOrder(Price price, Quantity qnty, Side side, OrderType type);
     bool cancelOrder(OrderId id);
     
     std::vector<Trade> match();
+    void matchInto(std::vector<Trade>& out);
+    
     Price best_bid() const;
     Price best_ask() const;
     Price mid_price() const;

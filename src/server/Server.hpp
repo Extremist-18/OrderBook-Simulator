@@ -1,6 +1,7 @@
 #pragma once
 #include "core/OrderBook.hpp"
 #include "simulation/Simulator.hpp"
+#include "core/MatchingPipeline.hpp"
 #include <atomic>
 #include <thread>
 #include <memory>
@@ -44,9 +45,10 @@ class OrderBookServer{
     void handleGetBids(uWS::HttpResponse<false> *res, uWS::HttpRequest *req);
     void handleGetAsks(uWS::HttpResponse<false> *res, uWS::HttpRequest *req);
     void handleMidPrice(uWS::HttpResponse<false> *res, uWS::HttpRequest *req);
-    void broadcastBookState(); 
-    void broadcastBookUpdate();
-    
+    // void broadcastBookState(); 
+    // void broadcastBookUpdate();
+    void onPipelineBatch(const std::vector<Event>& events, const BookSnapshot* snap);
+
     void settleTrades(const std::vector<Trade>& trades);
     std::string todayDate();
     
@@ -57,4 +59,10 @@ class OrderBookServer{
     uWS::App* app1 = nullptr;
     std::atomic<bool> running1{false};
     std::thread serverThread1;
+    std::unique_ptr<MatchingPipeline> pipeline1;
+    uWS::Loop* loop1 = nullptr;
+
+    std::unordered_map<uint64_t,uWS::HttpResponse<false>*>  pending1;
+    uint64_t nextTicket =1;
+    BookSnapshot snap1{};
 };

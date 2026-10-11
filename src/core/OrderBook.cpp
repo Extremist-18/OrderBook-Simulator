@@ -3,8 +3,12 @@
 
 static int64_t counter=0;
 OrderId OrderBook::addOrder(Price price, Quantity qnty,Side side, OrderType type){
+    return addOrder(nextOrderId++, price, qnty, side, type);
+}
+
+OrderId OrderBook::addOrder(OrderId id, Price price, Quantity qnty,Side side, OrderType type){
     std::lock_guard<std::mutex> lock(mtx);
-    OrderId id = nextOrderId++;
+    
     uint64_t seq = ++counter;
     Order o{id,seq,price, qnty,side,type};
 
@@ -93,9 +97,14 @@ void OrderBook::setMarketDepth(std::vector<std::pair<Price,Quantity>>& bidLevels
 }
 
 std::vector<Trade> OrderBook::match(){
-    std::lock_guard<std::mutex> lock(mtx);
     std::vector<Trade> trades;
+    matchInto(trades);
+    return trades;
+}
 
+void OrderBook::matchInto(std::vector<Trade> &trades){
+    std::lock_guard<std::mutex> lock(mtx);
+    // std::vector<Trade> trades;
     int64_t buyVolume=0, sellVolume=0;
     while(!pendingMarketOrders.empty()){
         Order market = pendingMarketOrders.back();
@@ -184,7 +193,6 @@ std::vector<Trade> OrderBook::match(){
             asking.head++;
         }
     }
-    return trades;
 }
 
 Price OrderBook::best_bid() const{

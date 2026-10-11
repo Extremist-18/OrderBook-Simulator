@@ -25,6 +25,7 @@ find_package(ZLIB REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBUV REQUIRED libuv)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(Threads REQUIRED)
 
 if(EXISTS ${IMGUI_DIR}/imgui.cpp)
     find_package(OpenGL)
@@ -94,6 +95,7 @@ target_include_directories(orderbook_server PRIVATE
     ${USOCKETS_DIR}/src
 )
 
+target_link_directories(orderbook_server PRIVATE ${LIBUV_LIBRARY_DIRS}) 
 target_link_libraries(orderbook_server PRIVATE
     nlohmann_json::nlohmann_json
     ${USOCKETS_DIR}/uSockets.a
