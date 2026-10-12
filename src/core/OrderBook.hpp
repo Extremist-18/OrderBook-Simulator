@@ -27,6 +27,7 @@ struct PriceLevel{
     }
 };
 
+inline constexpr OrderId MARKET_ID_BASE = 1ULL << 62;
 struct Trade{
     Price price;
     Quantity quantity;
@@ -48,6 +49,7 @@ class OrderBook{
     int64_t Volume =0;
     std::vector<Price> lastMarketBidPrices;
     std::vector<Price> lastMarketAskPrices;
+    OrderId nextMarketId = MARKET_ID_BASE;
     std::atomic<OrderId> nextOrderId{1};
     
     public:

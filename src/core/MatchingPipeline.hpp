@@ -72,7 +72,7 @@ class MatchingPipeline{
                 bool getDepth = false;
                 while(depthQ->pop(d))    getDepth = true;
                 if(getDepth){
-                    applyDepth(d);
+                    applyDepth(d,trades);
                     worked = true;
                 }
                 if(worked){
@@ -87,11 +87,18 @@ class MatchingPipeline{
         void pushEvent(const Event &e){
             while(!outQ->push(e))    std::this_thread::yield();
         }
-        void applyDepth(const DepthUpdate&d){
+        void applyDepth(const DepthUpdate&d, std::vector<Trade> &trades){
             std::vector<std::pair<Price,Quantity>> bids, asks;
             for(int i=0;i<d.nBids;i++)  bids.push_back({d.bids[i].price,d.bids[i].qnty});
             for(int i=0;i<d.nAsks;i++)  asks.push_back({d.asks[i].price, d.asks[i].qnty});
             book1.setMarketDepth(bids,asks);
+
+            trades.clear();
+            book1.matchInto(trades);
+            for(const Trade &t : trades){
+                Event e{};  e.type = Type::Trade;  e.trade = t;
+                pushEvent(e);
+            }
         }
         
         void publishSnapshot(){
@@ -118,9 +125,18 @@ class MatchingPipeline{
                     e.trade =t;
                     pushEvent(e);
                 }
+                Quantity filled = 0;
+                for(const Trade &t:trades)
+                    if(t.buyer_id==c.id || t.seller_id==c.id)   filled += t.quantity;
+
                 Event done{};   done.type=Type::Done; done.ticket =c.ticket;
                 done.orderId = c.id;
                 done.ok =true;
+                done.filled = filled;
+                if(filled >= c.qnty)        done.orderStatus = OrderStatus::Filled;
+                else if(filled > 0)         done.orderStatus = OrderStatus::Partial;
+                else if(c.type==OrderType::Market)  done.orderStatus = OrderStatus::Unfilled;  // no liquidity
+                else                        done.orderStatus = OrderStatus::Open;              // resting limit
                 pushEvent(done);
             }else{
                 bool ok = book1.cancelOrder(c.id);

@@ -34,7 +34,9 @@ class DepthUpdate{
     Level asks[DEPTH];
 };
 
+enum class OrderStatus : uint8_t {Open, Partial, Filled, Unfilled};
 enum class Type : uint8_t {Trade, Done};
+
 class Event{
     public:
     Trade trade;
@@ -43,6 +45,8 @@ class Event{
     Type type;
     bool ok;
     bool isCancel;
+    OrderStatus orderStatus;    
+    Quantity filled;
 };
 static_assert(sizeof(Event)<=64);
 

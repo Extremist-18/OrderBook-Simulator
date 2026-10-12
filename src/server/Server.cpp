@@ -23,6 +23,15 @@ OrderBookServer::~OrderBookServer(){
     pipeline1->stop();
 }
 
+static const char* orderStatusName(OrderStatus st){
+    switch(st){
+        case OrderStatus::Open:     return "open";
+        case OrderStatus::Partial:  return "partial";
+        case OrderStatus::Filled:   return "filled";
+        default:                    return "unfilled";
+    }
+}
+
 static std::string snapshotJson(const BookSnapshot& s){
     json j = {{"midPrice",s.mid},{"bids",json::array()},{"asks",json::array()}};
     for(int i=0;i<s.nBids;i++)  j["bids"].push_back({{"price",s.bids[i].price}, {"quantity",s.bids[i].qnty}});
@@ -490,7 +499,8 @@ void OrderBookServer::onPipelineBatch(const std::vector<Event> &ev,const BookSna
                 r.body = json{{"error","order not found or already filled"}}.dump();
             }
         }else{
-            r.body = json{{"status","ok"},{"orderId",e.orderId}}.dump();
+            // r.body = json{{"status","ok"},{"orderId",e.orderId}}.dump();
+            r.body = json{{"status","ok"},{"orderId",e.orderId}, {"orderStatus",orderStatusName(e.orderStatus)},{"filledQty",e.filled}}.dump();
         }
         replies.push_back(std::move(r));
     }

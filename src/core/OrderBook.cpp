@@ -7,7 +7,7 @@ OrderId OrderBook::addOrder(Price price, Quantity qnty,Side side, OrderType type
 }
 
 OrderId OrderBook::addOrder(OrderId id, Price price, Quantity qnty,Side side, OrderType type){
-    std::lock_guard<std::mutex> lock(mtx);
+    // std::lock_guard<std::mutex> lock(mtx);
     
     uint64_t seq = ++counter;
     Order o{id,seq,price, qnty,side,type};
@@ -42,7 +42,7 @@ OrderId OrderBook::addOrder(OrderId id, Price price, Quantity qnty,Side side, Or
 }
 
 bool OrderBook::cancelOrder(OrderId id){
-    std::lock_guard<std::mutex> lock(mtx);
+    // std::lock_guard<std::mutex> lock(mtx);
     auto it = orderMetadata.find(id);
     if(it == orderMetadata.end())  return false;
 
@@ -51,6 +51,8 @@ bool OrderBook::cancelOrder(OrderId id){
         auto it = bids.find(price);
         if(it!=bids.end()){
             it->second.cancelOrder(id);
+            while(it->second.head < it->second.orders.size() && it->second.orders[it->second.head].quantity==0)
+                it->second.head++;                       // skip cancelled/filled entries at the front
             if(it->second.head>= it->second.orders.size())
                 bids.erase(it);
         }
@@ -58,7 +60,9 @@ bool OrderBook::cancelOrder(OrderId id){
         auto it = asks.find(price);
         if(it!=asks.end()){
             it->second.cancelOrder(id);
-            if(it->second.head >= it->second.orders.size())
+            while(it->second.head >= it->second.orders.size() && it->second.orders[it->second.head].quantity==0)
+                it->second.head++;                       // skip cancelled/filled entries at the front
+            if(it->second.head>= it->second.orders.size())
                 asks.erase(it);
         }
     }
@@ -67,31 +71,57 @@ bool OrderBook::cancelOrder(OrderId id){
     return true;
 }
 
+template<class Map>
+void removeMarketOrders(Map& side, std::vector<Price>& prices){
+    for(Price p : prices){
+        auto it = side.find(p);
+        if(it == side.end()) continue;
+        PriceLevel& lvl = it->second;
+
+        std::vector<Order> keep;                                   // live USER orders, in time order
+        for(int i =lvl.head;i<lvl.orders.size();i++){
+            const Order& o = lvl.orders[i];
+            if(o.quantity > 0 && o.orderId < MARKET_ID_BASE) keep.push_back(o);
+        }
+        if(keep.empty()){ side.erase(it); continue; }              // nothing but Binance orders here
+
+        lvl.orders = std::move(keep);
+        lvl.head = 0;
+        lvl.idx_map.clear();
+        for(int i =0;i<lvl.orders.size();i++) lvl.idx_map[lvl.orders[i].orderId] = i;
+    }
+    prices.clear();
+}
+
 void OrderBook::setMarketDepth(std::vector<std::pair<Price,Quantity>>& bidLevels,std::vector<std::pair<Price,Quantity>>& askLevels){
-    std::lock_guard<std::mutex> lock(mtx);
+    // std::lock_guard<std::mutex> lock(mtx);
+    removeMarketOrders(bids, lastMarketBidPrices);
+    removeMarketOrders(asks, lastMarketAskPrices);
 
-    for(Price p:lastMarketBidPrices)    bids.erase(p);
-    for(Price p:lastMarketAskPrices)    asks.erase(p);
-    lastMarketAskPrices.clear();
-    lastMarketBidPrices.clear();
+    // for(Price p:lastMarketBidPrices)    bids.erase(p);
+    // for(Price p:lastMarketAskPrices)    asks.erase(p);
+    // lastMarketAskPrices.clear();
+    // lastMarketBidPrices.clear();
+    // static OrderId marketId = 900000;
 
-    static OrderId marketId = 900000;
     for(auto &x:bidLevels){
         // x = [price, qnty]
+        if(x.second==0) continue;
         uint64_t seq = ++counter;
-        Order o{marketId++,seq,x.first,x.second, Side::Buy, OrderType::Limit};
-        PriceLevel lvl;
-        lvl.addOrder(o);
-        bids[x.first] = std::move(lvl);
+        Order o{nextMarketId++,seq,x.first,x.second, Side::Buy, OrderType::Limit};
+        // PriceLevel lvl;
+        // lvl.addOrder(o);
+        bids[x.first].addOrder(o);
         lastMarketBidPrices.push_back(x.first);
     }
     for(auto &x:askLevels){
         // x = [price,qnty]
+        if(x.second==0) continue;
         uint64_t seq = ++counter;
-        Order o{marketId++,seq, x.first, x.second,Side::Sell, OrderType::Limit};
-        PriceLevel lvl;
-        lvl.addOrder(o);
-        asks[x.first] = std::move(lvl);
+        Order o{nextMarketId++,seq, x.first, x.second,Side::Sell, OrderType::Limit};
+        // PriceLevel lvl;
+        // lvl.addOrder(o);
+        asks[x.first].addOrder(o);
         lastMarketAskPrices.push_back(x.first);
     }
 }
@@ -103,7 +133,7 @@ std::vector<Trade> OrderBook::match(){
 }
 
 void OrderBook::matchInto(std::vector<Trade> &trades){
-    std::lock_guard<std::mutex> lock(mtx);
+    // std::lock_guard<std::mutex> lock(mtx);
     // std::vector<Trade> trades;
     int64_t buyVolume=0, sellVolume=0;
     while(!pendingMarketOrders.empty()){
@@ -209,7 +239,7 @@ Price OrderBook::mid_price() const{
 }
 
 std::vector<std::pair<Price, Quantity>> OrderBook::buyOrders(int cnt) const{
-    std::lock_guard<std::mutex> lock(mtx);
+    // std::lock_guard<std::mutex> lock(mtx);
     std::vector<std::pair<Price,Quantity>> res;
     int i=0;
     for(const auto &[Price,level]:bids){
@@ -224,7 +254,7 @@ std::vector<std::pair<Price, Quantity>> OrderBook::buyOrders(int cnt) const{
 };
 
 std::vector<std::pair<Price, Quantity>> OrderBook::sellOrders(int cnt) const{
-    std::lock_guard<std::mutex> lock(mtx);
+    // std::lock_guard<std::mutex> lock(mtx);
     std::vector<std::pair<Price,Quantity>> res;
     int i=0;
     for(const auto &[Price,level]:asks){

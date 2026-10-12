@@ -1217,6 +1217,10 @@
                 return;
             }
 
+            if (side === 'sell' && Math.round(size * 100000) > position) {
+                showToast(`You only hold ${fmtQty(position)} BTC. You can't sell more than you hold.`, 'error');
+                return;
+            }
             const body = {
                 price: Math.round(execPrice * 100),
                 quantity: Math.round(size * 100000),
@@ -1230,14 +1234,12 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 })
-                .then(res => {
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    return res.json();
-                })
-                .then(data => {
-                    if (data.status === 'ok') {
-                        showToast(`Order ${data.orderId} placed!`);
-
+                .then(res => res.json().then(data => ({ ok: res.ok, data })))
+                .then(({ok,data}) => {
+                    if (ok && data.status === 'ok') {
+                        showToast(`Order ${data.orderId} placed (${data.orderStatus || 'ok'})`);
+                        // showToast(`Order ${data.orderId} placed!`);
+                        
                         trades.unshift({ side, size, price: execPrice, status: data.orderStatus || 'filled', time: new Date().toLocaleTimeString() });
                         trades = trades.slice(0, 25);
                         tradesList.innerHTML = trades.map(t =>
